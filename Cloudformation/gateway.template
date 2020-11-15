@@ -1,0 +1,238 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+    Generator: "former2"
+Description: ""
+Resources:
+
+    KinesisRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            Path: "/"
+            AssumeRolePolicyDocument: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"apigateway.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}"
+            AssumeRolePolicyDocument:
+            AssumeRolePolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+              - Effect: Allow
+                Principal:
+                  Service:
+                  - apigateway.amazonaws.com
+                Action:
+                - sts:AssumeRole
+            MaxSessionDuration: 3600
+            ManagedPolicyArns: 
+              - "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+              - "arn:aws:iam::aws:policy/AmazonKinesisFullAccess"
+            Description: ""
+              
+    ApiGatewayRestApi:
+        Type: "AWS::ApiGateway::RestApi"
+        Properties:
+            Name: "KinesisProxy"
+            ApiKeySourceType: "HEADER"
+            EndpointConfiguration: 
+                Types: 
+                  - "REGIONAL"
+
+    ApiGatewayStage:
+        Type: "AWS::ApiGateway::Stage"
+        Properties:
+            StageName: "default"
+            DeploymentId: !Ref ApiGatewayDeployment
+            RestApiId: !Ref ApiGatewayRestApi
+            CacheClusterEnabled: false
+            TracingEnabled: false
+
+    ApiGatewayDeployment:
+        Type: "AWS::ApiGateway::Deployment"
+        DependsOn: 
+            - ApiGatewayMethod
+            - ApiGatewayMethod2
+            - ApiGatewayMethod3
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+    
+    ApiKey:
+        Type: 'AWS::ApiGateway::ApiKey'
+        DependsOn:
+            - ApiGatewayDeployment
+            - ApiGatewayStage
+        Properties:
+            Enabled: 'true'
+            StageKeys:
+                - RestApiId: !Ref ApiGatewayRestApi
+                  StageName: "default"
+                  
+    usagePlanKey:
+        Type: 'AWS::ApiGateway::UsagePlanKey'
+        DependsOn: 
+            - ApiKey
+            - ApiGatewayUsagePlan
+        Properties:
+            KeyId: !Ref ApiKey
+            KeyType: API_KEY
+            UsagePlanId: !Ref ApiGatewayUsagePlan
+    
+    ApiGatewayResource:
+        Type: "AWS::ApiGateway::Resource"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            PathPart: "streams"
+            ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+
+    ApiGatewayResource2:
+        Type: "AWS::ApiGateway::Resource"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            PathPart: "{stream-name}"
+            ParentId: !Ref ApiGatewayResource
+
+    ApiGatewayResource3:
+        Type: "AWS::ApiGateway::Resource"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            PathPart: "record"
+            ParentId: !Ref ApiGatewayResource2
+
+    ApiGatewayMethod:
+        Type: "AWS::ApiGateway::Method"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            ResourceId: !Ref ApiGatewayResource
+            HttpMethod: "GET"
+            AuthorizationType: "NONE"
+            ApiKeyRequired: true
+            MethodResponses: 
+              - 
+                ResponseModels: 
+                    "application/json": !Ref ApiGatewayModel2
+                StatusCode: "200"
+            Integration: 
+                CacheNamespace: !Ref ApiGatewayResource
+                Credentials: !Sub '${KinesisRole.Arn}'
+                IntegrationHttpMethod: "POST"
+                IntegrationResponses: 
+                  - 
+                    StatusCode: "200"
+                PassthroughBehavior: "WHEN_NO_MATCH"
+                RequestParameters: 
+                    "integration.request.header.Content-Type": "'application/x-amz-json-1.1'"
+                RequestTemplates: 
+                    "application/json": |
+                        {
+                        }
+                TimeoutInMillis: 29000
+                Type: "AWS"
+                Uri: !Sub "arn:aws:apigateway:${AWS::Region}:kinesis:action/ListStreams"
+
+    ApiGatewayMethod2:
+        Type: "AWS::ApiGateway::Method"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            ResourceId: !Ref ApiGatewayResource2
+            HttpMethod: "GET"
+            AuthorizationType: "NONE"
+            ApiKeyRequired: true
+            RequestParameters: 
+                "method.request.path.stream-name": true
+            MethodResponses: 
+              - 
+                ResponseModels: 
+                    "application/json": !Ref ApiGatewayModel2
+                StatusCode: "200"
+            Integration: 
+                CacheNamespace: !Ref ApiGatewayResource2
+                Credentials: !Sub '${KinesisRole.Arn}'
+                IntegrationHttpMethod: "POST"
+                IntegrationResponses: 
+                  - 
+                    StatusCode: "200"
+                PassthroughBehavior: "WHEN_NO_MATCH"
+                RequestTemplates: 
+                    "application/json": |
+                        {
+                            "StreamName": "$input.params('stream-name')"
+                        }
+                TimeoutInMillis: 29000
+                Type: "AWS"
+                Uri: !Sub "arn:aws:apigateway:${AWS::Region}:kinesis:action/DescribeStream"
+
+    ApiGatewayMethod3:
+        Type: "AWS::ApiGateway::Method"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            ResourceId: !Ref ApiGatewayResource3
+            HttpMethod: "PUT"
+            AuthorizationType: "NONE"
+            ApiKeyRequired: true
+            RequestParameters: 
+                "method.request.path.stream-name": true
+            MethodResponses: 
+              - 
+                ResponseModels: 
+                    "application/json": !Ref ApiGatewayModel2
+                StatusCode: "200"
+            Integration: 
+                CacheNamespace: !Ref ApiGatewayResource3
+                Credentials: !Sub '${KinesisRole.Arn}'
+                IntegrationHttpMethod: "POST"
+                IntegrationResponses: 
+                  - 
+                    StatusCode: "200"
+                PassthroughBehavior: "WHEN_NO_MATCH"
+                RequestParameters: 
+                    "integration.request.header.Content-Type": "'application/x-amz-json-1.1'"
+                RequestTemplates: 
+                    "application/json": |
+                        {
+                            "StreamName": "$input.params('stream-name')",
+                            "Data": "$util.base64Encode($input.json('$.Data'))",
+                            "PartitionKey": "$input.path('$.PartitionKey')"
+                        }
+                TimeoutInMillis: 29000
+                Type: "AWS"
+                Uri: !Sub "arn:aws:apigateway:${AWS::Region}:kinesis:action/PutRecord"
+
+    ApiGatewayModel:
+        Type: "AWS::ApiGateway::Model"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            Schema: |
+                {
+                  "type" : "object",
+                  "properties" : {
+                    "records" : {
+                      "type" : "array",
+                      "items" : {
+                        "type" : "object",
+                        "properties" : {
+                          "data" : {
+                            "type" : "string"
+                          },
+                          "partition-key" : {
+                            "type" : "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+            ContentType: "application/json"
+
+    ApiGatewayModel2:
+        Type: "AWS::ApiGateway::Model"
+        Properties:
+            RestApiId: !Ref ApiGatewayRestApi
+            Schema: |
+                {
+                  "type" : "object"
+                }
+            ContentType: "application/json"
+
+    ApiGatewayUsagePlan:
+        Type: "AWS::ApiGateway::UsagePlan"
+        Properties:
+            ApiStages: 
+              - 
+                ApiId: !Ref ApiGatewayRestApi
+                Stage: !Ref ApiGatewayStage
